@@ -1,0 +1,27 @@
+program: ./wire_image_denoise.py
+name: swinr
+entity: postech_sinr
+method: grid
+parameters: 
+  posenc_freq:
+    values: [5, 7, 10, 15]
+  lr:
+    values: [0.004, 0.04, 0.0006, 0.06]
+  hidden_features:
+    values: [128, 256, 512]
+  hidden_layers:
+    values: [2,4]
+command:
+  - python
+  - ${program}
+  - ${args}
+  - --dataset_dir=data/sun360
+  - --nonlin=relu
+  - --skip
+  - --niters=2000 # depend on dataset
+  - --panorama_idx=1
+  - --normalize
+  # - --batch_size=1 # only for temporal
+  - --plot # only for spatial
+
+  # wandb agent postech_sinr/final_denoising/6a3pn6n4

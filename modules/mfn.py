@@ -13,12 +13,12 @@ from .utils import build_montage, normalize
     
 # GaborLayer and GaborNet from https://github.com/addy1997/mfn-pytorch/blob/main/model/MultiplicativeFilterNetworks.py
 class GaborLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, padding, alpha, beta=1.0, bias=False):
+    def __init__(self, in_features, out_features, padding, alpha, beta=1.0, bias=False):
         super(GaborLayer, self).__init__()
 
-        self.mu = nn.Parameter(torch.rand((out_dim, in_dim)) * 2 - 1)
-        self.gamma = nn.Parameter(torch.distributions.gamma.Gamma(alpha, beta).sample((out_dim, )))
-        self.linear = torch.nn.Linear(in_dim, out_dim)
+        self.mu = nn.Parameter(torch.rand((out_features, in_features)) * 2 - 1)
+        self.gamma = nn.Parameter(torch.distributions.gamma.Gamma(alpha, beta).sample((out_features, )))
+        self.linear = torch.nn.Linear(in_features, out_features)
         #self.padding = padding
 
         self.linear.weight.data *= 128. * torch.sqrt(self.gamma.unsqueeze(-1))

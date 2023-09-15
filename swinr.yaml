@@ -1,0 +1,27 @@
+program: ./wire_image_denoise.py
+name: swinr
+entity: postech_sinr
+method: grid
+parameters:
+  omega:
+    values: [30,40,50,60]
+  sigma:
+    values: [0.1, 1, 10]
+  lr:
+    values: [0.0004, 0.0001]
+  hidden_features:
+    values: [256, 512]
+  hidden_layers:
+    values: [2,4]
+command:
+  - python
+  - ${program}
+  - ${args}
+  - --dataset_dir=data/sun360
+  - --nonlin=swinr
+  - --skip
+  - --niters=2000 # depend on dataset
+  - --panorama_idx=1
+  - --normalize
+  # - --batch_size=1 # only for temporal
+  - --plot # only for spatial

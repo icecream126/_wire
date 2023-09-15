@@ -7,18 +7,19 @@ from . import relu
 from . import siren
 from . import wire
 from . import wire2d
+from . import shinr
+from . import swinr
 
 model_dict = {'gauss': gauss,
               'mfn': mfn,
               'relu': relu,
               'siren': siren,
               'wire': wire,
-              'wire2d': wire2d}
+              'wire2d': wire2d,
+              'swinr':swinr,
+              'shinr':shinr}
 
-def get_INR(nonlin, in_features, hidden_features, hidden_layers,
-            out_features, outermost_linear=True, first_omega_0=30,
-            hidden_omega_0=30, scale=10, pos_encode=False,
-            sidelength=512, fn_samples=None, use_nyquist=True):
+def get_INR(nonlin, **kwargs):
     '''
         Function to get a class instance for a given type of
         implicit neural representation
@@ -50,17 +51,20 @@ def get_INR(nonlin, in_features, hidden_features, hidden_layers,
     '''
 
     inr_mod = model_dict[nonlin]
-    model = inr_mod.INR(in_features,
-                        hidden_features,
-                        hidden_layers,
-                        out_features,
-                        outermost_linear,
-                        first_omega_0,
-                        hidden_omega_0,
-                        scale,
-                        pos_encode,
-                        sidelength,
-                        fn_samples,
-                        use_nyquist)
+    model = inr_mod.INR(**kwargs)
+    # model = inr_mod.INR(posenc_freq,
+                        # in_features,
+                        # hidden_features,
+                        # hidden_layers,
+                        # out_features,
+                        # outermost_linear,
+                        # first_omega_0,
+                        # hidden_omega_0,
+                        # scale,
+                        # pos_encode,
+                        # sidelength,
+                        # fn_samples,
+                        # use_nyquist,
+                        # **kwargs)
     
     return model

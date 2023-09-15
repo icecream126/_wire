@@ -2,13 +2,14 @@
 
 import pdb
 import math
+from math import pi, ceil
 
 import numpy as np
 
 import torch
 from torch import nn
 
-from .utils import build_montage, normalize
+from .utils import build_montage, normalize, PosEncoding
     
 class ReLULayer(nn.Module):
     '''
@@ -28,103 +29,36 @@ class ReLULayer(nn.Module):
     def forward(self, input):
         return nn.functional.relu(self.linear(input))
     
-class PosEncoding(nn.Module):
-    '''Module to add positional encoding as in NeRF [Mildenhall et al. 2020].'''
-    def __init__(self, in_features, sidelength=None, fn_samples=None, use_nyquist=True):
-        super().__init__()
-
-        self.in_features = in_features
-
-        if self.in_features == 3:
-            self.num_frequencies = 10
-        elif self.in_features == 2:
-            assert sidelength is not None
-            if isinstance(sidelength, int):
-                sidelength = (sidelength, sidelength)
-            self.num_frequencies = 4
-            if use_nyquist:
-                self.num_frequencies = self.get_num_frequencies_nyquist(min(sidelength[0], sidelength[1]))
-        elif self.in_features == 1:
-            #assert fn_samples is not None
-            fn_samples = sidelength
-            self.num_frequencies = 4
-            if use_nyquist:
-                self.num_frequencies = self.get_num_frequencies_nyquist(fn_samples)
-        else:
-            self.num_frequencies = 4
-
-        self.out_dim = in_features + 2 * in_features * self.num_frequencies
-
-    def get_num_frequencies_nyquist(self, samples):
-        nyquist_rate = 1 / (2 * (2 * 1 / samples))
-        return int(math.floor(math.log(nyquist_rate, 2)))
-
-    def forward(self, coords):
-        coords = coords.view(coords.shape[0], -1, self.in_features)
-
-        coords_pos_enc = coords
-        for i in range(self.num_frequencies):
-            for j in range(self.in_features):
-                c = coords[..., j]
-
-                sin = torch.unsqueeze(torch.sin((2 ** i) * np.pi * c), -1)
-                cos = torch.unsqueeze(torch.cos((2 ** i) * np.pi * c), -1)
-
-                coords_pos_enc = torch.cat((coords_pos_enc, sin, cos), axis=-1)
-
-        return coords_pos_enc.reshape(coords.shape[0], -1, self.out_dim)
-    
 class INR(nn.Module):
-    def __init__(self, in_features,
+    def __init__(self, posenc_freq, in_features,
                  hidden_features, hidden_layers, 
-                 out_features, outermost_linear=True,
-                 first_omega_0=30, hidden_omega_0=30., scale=10.0,
-                 pos_encode=False, sidelength=512, fn_samples=None,
-                 use_nyquist=True):
+                 out_features, skip, **kwargs):
         super().__init__()
-        self.pos_encode = pos_encode
-        
-        self.complex = False
+        self.skip = skip
+        self.hidden_layers = hidden_layers
+        self.posenc = PosEncoding(in_features=in_features, num_frequencies=posenc_freq)
+        self.posenc_dim = 2 * posenc_freq * in_features + in_features
+
         self.nonlin = ReLULayer
-            
-        if pos_encode:
-            self.positional_encoding = PosEncoding(in_features=in_features,
-                                                   sidelength=sidelength,
-                                                   fn_samples=fn_samples,
-                                                   use_nyquist=use_nyquist)
-            in_features = self.positional_encoding.out_dim
-            
-        self.net = []
-        self.net.append(self.nonlin(in_features, hidden_features, 
-                                  is_first=True, omega_0=first_omega_0,
-                                  scale=scale))
+
+        self.net = nn.ModuleList()
+        self.net.append(self.nonlin(self.posenc_dim, hidden_features))
 
         for i in range(hidden_layers):
-            self.net.append(self.nonlin(hidden_features, hidden_features, 
-                                      is_first=False, omega_0=hidden_omega_0,
-                                      scale=scale))
-
-        if outermost_linear:
-            if self.complex:
-                dtype = torch.cfloat
+            if self.skip and i == ceil(hidden_layers / 2):
+                self.net.append(self.nonlin(hidden_features + self.posenc_dim, hidden_features))
             else:
-                dtype = torch.float
-            final_linear = nn.Linear(hidden_features,
-                                     out_features,
-                                     dtype=dtype)
-                        
-            self.net.append(final_linear)
-        else:
-            self.net.append(self.nonlin(hidden_features, out_features, 
-                                      is_first=False, omega_0=hidden_omega_0,
-                                      scale=scale))
-        
-        self.net = nn.Sequential(*self.net)
+                self.net.append(self.nonlin(hidden_features, hidden_features))
+
+        final_linear = nn.Linear(hidden_features, out_features)
+
+        self.net.append(final_linear)
     
-    def forward(self, coords):
-        if self.pos_encode:
-            coords = self.positional_encoding(coords)
-            
-        output = self.net(coords)
-                    
-        return output
+    def forward(self, x):
+        x = self.posenc(x)
+        x_in = x
+        for i, layer in enumerate(self.net):
+            if self.skip and i == ceil(self.hidden_layers / 2) + 1:
+                x = torch.cat([x, x_in], dim=-1)
+            x = layer(x)
+        return x

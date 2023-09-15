@@ -15,11 +15,121 @@ from scipy.sparse.linalg import svds
 from scipy import signal
 
 import torch
+import torch.nn as nn
 
 # Plotting
 import cv2
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+
+import torch
+import numpy as np
+
+def to_cartesian(points):
+    theta, phi = points[..., 0], points[..., 1]
+
+    x = torch.cos(theta) * torch.cos(phi)
+    y = torch.cos(theta) * torch.sin(phi)
+    z = torch.sin(theta)
+    return torch.stack([x, y, z], dim=-1)
+
+
+
+class PosEncoding(nn.Module):
+    """Module to add positional encoding as in NeRF [Mildenhall et al. 2020]."""
+
+    def __init__(self, in_features, num_frequencies=10):
+        super().__init__()
+
+        self.in_features = in_features
+        self.num_frequencies = num_frequencies
+
+        self.out_features = in_features + 2 * in_features * self.num_frequencies
+
+    def forward(self, coords):
+        coords_pos_enc = coords
+        for i in range(self.num_frequencies):
+            for j in range(self.in_features):
+                c = coords[..., j]
+
+                sin = torch.unsqueeze(torch.sin((2**i) * np.pi * c), -1)
+                cos = torch.unsqueeze(torch.cos((2**i) * np.pi * c), -1)
+
+                coords_pos_enc = torch.cat((coords_pos_enc, sin, cos), axis=-1)
+
+        return coords_pos_enc.reshape(coords.shape[1], self.out_features)
+
+
+
+def components_from_spherical_harmonics(levels, directions):
+    """
+    Returns value for each component of spherical harmonics.
+
+    Args:
+        levels: Number of spherical harmonic levels to compute.
+        directions: Spherical hamonic coefficients
+    """
+    num_components = levels**2
+    components = torch.zeros(
+        (*directions.shape[:-1], num_components), device=directions.device
+    )
+
+    assert 1 <= levels <= 5, f"SH levels must be in [1,4], got {levels}"
+    assert (
+        directions.shape[-1] == 3
+    ), f"Direction input should have three dimensions. Got {directions.shape[-1]}"
+
+    x = directions[..., 0]
+    y = directions[..., 1]
+    z = directions[..., 2]
+
+    xx = x**2
+    yy = y**2
+    zz = z**2
+
+    # l0
+    components[..., 0] = 0.28209479177387814
+
+    # l1
+    if levels > 1:
+        components[..., 1] = 0.4886025119029199 * y
+        components[..., 2] = 0.4886025119029199 * z
+        components[..., 3] = 0.4886025119029199 * x
+
+    # l2
+    if levels > 2:
+        components[..., 4] = 1.0925484305920792 * x * y
+        components[..., 5] = 1.0925484305920792 * y * z
+        components[..., 6] = 0.9461746957575601 * zz - 0.31539156525251999
+        components[..., 7] = 1.0925484305920792 * x * z
+        components[..., 8] = 0.5462742152960396 * (xx - yy)
+
+    # l3
+    if levels > 3:
+        components[..., 9] = 0.5900435899266435 * y * (3 * xx - yy)
+        components[..., 10] = 2.890611442640554 * x * y * z
+        components[..., 11] = 0.4570457994644658 * y * (5 * zz - 1)
+        components[..., 12] = 0.3731763325901154 * z * (5 * zz - 3)
+        components[..., 13] = 0.4570457994644658 * x * (5 * zz - 1)
+        components[..., 14] = 1.445305721320277 * z * (xx - yy)
+        components[..., 15] = 0.5900435899266435 * x * (xx - 3 * yy)
+
+    # l4
+    if levels > 4:
+        components[..., 16] = 2.5033429417967046 * x * y * (xx - yy)
+        components[..., 17] = 1.7701307697799304 * y * z * (3 * xx - yy)
+        components[..., 18] = 0.9461746957575601 * x * y * (7 * zz - 1)
+        components[..., 19] = 0.6690465435572892 * y * (7 * zz - 3)
+        components[..., 20] = 0.10578554691520431 * (35 * zz * zz - 30 * zz + 3)
+        components[..., 21] = 0.6690465435572892 * x * z * (7 * zz - 3)
+        components[..., 22] = 0.47308734787878004 * (xx - yy) * (7 * zz - 1)
+        components[..., 23] = 1.7701307697799304 * x * z * (xx - 3 * yy)
+        components[..., 24] = 0.4425326924449826 * (
+            xx * (xx - 3 * yy) - yy * (3 * xx - yy)
+        )
+
+    return components
+
 
 def normalize(x, fullnormalize=False):
     '''
