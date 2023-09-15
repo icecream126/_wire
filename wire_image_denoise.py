@@ -193,6 +193,7 @@ if __name__ == '__main__':
             loss = ((pixelvalues - gt_noisy[:, b_indices, :])**2 * b_weight.unsqueeze(-1)).mean() 
             batch_psnr =  -10*torch.log10(loss)
             batch_psnr_array.append(float(batch_psnr.detach().cpu().numpy()))
+            batch_mse_array.append(float(loss.detach().cpu().numpy()))
             
             wandb.log({'noisy_batch_w_mse':loss})
             wandb.log({'noisy_batch_w_psnr':batch_psnr})
