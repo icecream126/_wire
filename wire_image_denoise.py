@@ -7,12 +7,9 @@ import importlib
 import time
 
 import numpy as np
-from scipy import io
 
 import matplotlib.pyplot as plt
-plt.gray()
 
-import cv2
 from skimage.metrics import structural_similarity as ssim_func
 
 import torch
@@ -231,8 +228,6 @@ if __name__ == '__main__':
         
         imrec = rec[0, ...].reshape(H, W, 3).detach().cpu().numpy()
             
-        cv2.imshow('Reconstruction', imrec[..., ::-1])            
-        cv2.waitKey(1)
     
         if (mse_array[epoch] < best_mse) or (epoch == 0):
             best_mse = mse_array[epoch]
@@ -255,7 +250,7 @@ if __name__ == '__main__':
              'time_array': time_array.detach().cpu().numpy()}
     
     os.makedirs('results/denoising', exist_ok=True)
-    io.savemat('results/denoising/%s.mat'%nonlin, mdict)
+    # io.savemat('results/denoising/%s.mat'%nonlin, mdict)
 
     best_psnr = utils.psnr(im, best_img)
     print('Best PSNR: %.2f dB'%best_psnr)
