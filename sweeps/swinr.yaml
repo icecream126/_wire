@@ -4,9 +4,9 @@ entity: postech_sinr
 method: grid
 parameters:
   omega:
-    values: [20, 30, 40, 50]
+    values: [25, 35, 40, 50, 60]
   sigma:
-    values: [0.1, 1, 10]
+    values: [0.5, 0.7, 1]
   lr:
     values: [0.0003]
   hidden_features:
@@ -17,4 +17,4 @@ command:
   - ${args}
   - --dataset_dir=dataset/sun360
   - --model=swinr
-  - --panorama_idx=2
+  - --panorama_idx=1

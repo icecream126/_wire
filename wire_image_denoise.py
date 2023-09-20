@@ -198,12 +198,16 @@ if __name__ == '__main__':
                 rec[:, b_indices, :] = pixelvalues
     
             loss = ((pixelvalues - gt_noisy[:, b_indices, :])**2 * b_weight.unsqueeze(-1)).mean() 
+            gt_loss = ((pixelvalues - gt[:, b_indices, :])**2 * b_weight.unsqueeze(-1)).mean() 
             batch_psnr =  -10*torch.log10(loss)
+            gt_batch_psnr =  -10*torch.log10(gt_loss)
             batch_psnr_array.append(float(batch_psnr.detach().cpu().numpy()))
             batch_mse_array.append(float(loss.detach().cpu().numpy()))
             
             wandb.log({'noisy_batch_mse':loss})
             wandb.log({'noisy_batch_psnr':batch_psnr})
+            wandb.log({'gt_batch_mse':gt_loss})
+            wandb.log({'gt_batch_psnr':gt_batch_psnr})
             
             optim.zero_grad()
             loss.backward()
@@ -252,6 +256,7 @@ if __name__ == '__main__':
     
     best_psnr = utils.psnr(im, best_img, weight.reshape(H,W).unsqueeze(-1).detach().cpu().numpy())
     print('Best PSNR: %.2f dB'%best_psnr)
+    wandb.log({'best_psnr':best_psnr})
     if posencode:
         nonlin = 'posenc'
     best_img = Image.fromarray(((best_img-best_img.min())/(best_img.max()-best_img.min())*255).astype(np.uint8), 'RGB')
