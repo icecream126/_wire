@@ -8,5 +8,10 @@
 
 ## Trial 2
 ## panorama index 0
-CUDA_VISIBLE_DEVICES=2 wandb agent postech_sinr/new_denoising/4kzx3y52
+## CUDA_VISIBLE_DEVICES=2 wandb agent postech_sinr/new_denoising/4kzx3y52
+
+
+## Trial 3
+## panorama index 0
+CUDA_VISIBLE_DEVICES=3 wandb agent postech_sinr/new_denoising/u546pzuv
 
