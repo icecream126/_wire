@@ -69,3 +69,19 @@ class INR(nn.Module):
                 x = torch.cat([x, x_in], dim=-1)
             x = layer(x)
         return x
+    
+    def get_optimizer_parameters(self, weight_decay):
+        # Parameters of the last two layers
+        decay_parameters = list(self.net[-1].parameters()) + list(self.net[-2].parameters())
+
+        # Parameters of the remaining layers
+        no_decay_parameters = [
+            p for n, p in self.named_parameters() if not any(
+                nd in n for nd in ["net." + str(len(self.net) - 1), "net." + str(len(self.net) - 2)]
+            )
+        ]
+
+        return [
+            {'params': no_decay_parameters, 'weight_decay': 0.0},
+            {'params': decay_parameters, 'weight_decay': weight_decay}
+        ]

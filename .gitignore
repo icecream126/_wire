@@ -1,5 +1,7 @@
 checkpoints/
 wandb/
+*.png
+dataset/
 
 
 # Byte-compiled / optimized / DLL files

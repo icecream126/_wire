@@ -1,0 +1,18 @@
+program: wire_image_denoise.py
+name: relu
+entity: postech_sinr
+method: grid
+parameters:
+  posenc_freq:
+    values: [5, 7, 10, 15]
+  lr:
+    values: [0.0003]
+  hidden_features:
+    values: [512]
+command:
+  - python
+  - ${program}
+  - ${args}
+  - --dataset_dir=dataset/sun360
+  - --model=relu
+  - --panorama_idx=3

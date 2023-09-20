@@ -9,9 +9,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from .utils import build_montage, normalize, PosEncoding
+from .utils import build_montage, normalize, EucPosEncoding
     
-class ReLULayer(nn.Module):
+class EucReLULayer(nn.Module):
     '''
         Drop in replacement for SineLayer but with ReLU non linearity
     '''
@@ -36,10 +36,10 @@ class INR(nn.Module):
         super().__init__()
         self.skip = skip
         self.hidden_layers = hidden_layers
-        self.posenc = PosEncoding(in_features=in_features, num_frequencies=posenc_freq)
+        self.posenc = EucPosEncoding(in_features=in_features, num_frequencies=posenc_freq)
         self.posenc_dim = 2 * posenc_freq * in_features + in_features
 
-        self.nonlin = ReLULayer
+        self.nonlin = EucReLULayer
 
         self.net = nn.ModuleList()
         self.net.append(self.nonlin(self.posenc_dim, hidden_features))

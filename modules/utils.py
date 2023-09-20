@@ -16,6 +16,7 @@ from scipy import signal
 
 import torch
 import torch.nn as nn
+import math
 
 # Plotting
 import cv2
@@ -59,6 +60,42 @@ class PosEncoding(nn.Module):
 
         return coords_pos_enc.reshape(coords.shape[1], self.out_features)
 
+
+class EucPosEncoding(nn.Module):
+    '''Module to add positional encoding as in NeRF [Mildenhall et al. 2020].'''
+    def __init__(self, in_features, sidelength=None, fn_samples=None, use_nyquist=True):
+        super().__init__()
+
+        self.in_features = in_features
+
+        if self.in_features == 2:
+            assert sidelength is not None
+            if isinstance(sidelength, int):
+                sidelength = (sidelength, sidelength)
+            self.num_frequencies = 4
+            if use_nyquist:
+                self.num_frequencies = self.get_num_frequencies_nyquist(min(sidelength[0], sidelength[1]))
+
+        self.out_dim = in_features + 2 * in_features * self.num_frequencies
+
+    def get_num_frequencies_nyquist(self, samples):
+        nyquist_rate = 1 / (2 * (2 * 1 / samples))
+        return int(math.floor(math.log(nyquist_rate, 2)))
+
+    def forward(self, coords):
+        coords = coords.view(coords.shape[0], -1, self.in_features)
+
+        coords_pos_enc = coords
+        for i in range(self.num_frequencies):
+            for j in range(self.in_features):
+                c = coords[..., j]
+
+                sin = torch.unsqueeze(torch.sin((2 ** i) * np.pi * c), -1)
+                cos = torch.unsqueeze(torch.cos((2 ** i) * np.pi * c), -1)
+
+                coords_pos_enc = torch.cat((coords_pos_enc, sin, cos), axis=-1)
+
+        return coords_pos_enc.reshape(coords.shape[0], self.out_dim)
 
 
 def components_from_spherical_harmonics(levels, directions):
@@ -175,7 +212,8 @@ def rsnr(x, xhat):
 
     return rsnr_val
 
-def psnr(x, xhat):
+
+def psnr(x, xhat, weight):
     ''' Compute Peak Signal to Noise Ratio in dB
 
         Inputs:
@@ -186,7 +224,7 @@ def psnr(x, xhat):
             snrval: PSNR in dB
     '''
     err = x - xhat
-    denom = np.mean(pow(err, 2))
+    denom = np.mean(pow(err, 2)*weight)
 
     snrval = 10*np.log10(np.max(x)/denom)
 

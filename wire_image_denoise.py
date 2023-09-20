@@ -15,7 +15,8 @@ from skimage.metrics import structural_similarity as ssim_func
 import torch
 import torch.nn
 from torch.optim.lr_scheduler import LambdaLR
-from pytorch_msssim import ssim
+# from pytorch_msssim import ssim
+from PIL import Image
 
 from modules import models
 from modules import utils
@@ -51,18 +52,18 @@ def save_checkpoint(model, optimizer, epoch, best_mse, filename="checkpoint.pth"
 if __name__ == '__main__':
     
     parser = ArgumentParser()
-    parser.add_argument("--dataset_dir", type=str, default='./data/sun360')
-    parser.add_argument("--nonlin", type=str, default="swinr")
+    parser.add_argument("--dataset_dir", type=str, default='./dataset/sun360')
+    parser.add_argument("--model", type=str, default="relu")
 
     # Dataset argument
     parser.add_argument("--panorama_idx", type=int, default=1)
     parser.add_argument("--normalize", default=False, action="store_true")
-    parser.add_argument("--tau", type=float, default=3e1)
-    parser.add_argument("--snr", type=float, default=2)
+    parser.add_argument("--tau", type=float, default=70)
+    parser.add_argument("--snr", type=float, default=1)
 
     # Model argument
     parser.add_argument("--hidden_features", type=int, default=256)
-    parser.add_argument("--hidden_layers", type=int, default=2)
+    parser.add_argument("--hidden_layers", type=int, default=5)
     parser.add_argument("--skip", default=False, action="store_true")
     parser.add_argument("--omega", type=float, default=4.0)
     parser.add_argument("--sigma", type=float, default=4.0)
@@ -74,7 +75,8 @@ if __name__ == '__main__':
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--lr_patience", type=int, default=1000)
-    parser.add_argument("--niters",type=int, default=2000)
+    parser.add_argument("--niters",type=int, default=3000)
+    parser.add_argument("--patience",type=int, default=50)
 
     parser.add_argument("--project_name", type=str, default="fair_denoising")
     
@@ -82,18 +84,18 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.in_features = 3
     args.out_features = 3
-    wandb.init(project='final_denoising', config=args, name=str(args.nonlin))
+    wandb.init(project='final_denoising', config=args, name=str(args.model))
     
     
-    nonlin = args.nonlin            # type of nonlinearity, 'wire', 'siren', 'mfn', 'relu', 'posenc', 'gauss'
+    nonlin = args.model            # type of nonlinearity, 'wire', 'siren', 'mfn', 'relu', 'posenc', 'gauss'
     niters = args.niters               # Number of SGD iterations
     learning_rate = args.lr        # Learning rate. 
     
     # WIRE works best at 5e-3 to 2e-2, Gauss and SIREN at 1e-3 - 2e-3,
     # MFN at 1e-2 - 5e-2, and positional encoding at 5e-4 to 1e-3 
     
-    tau = 3e1                   # Photon noise (max. mean lambda). Set to 3e7 for representation, 3e1 for denoising
-    noise_snr = 2               # Readout noise (dB)
+    tau = args.tau                   # Photon noise (max. mean lambda). Set to 3e7 for representation, 3e1 for denoising
+    noise_snr = args.snr              # Readout noise (dB)
     
     # Gabor filter constants.
     # We suggest omega0 = 4 and sigma0 = 4 for denoising, and omega0=20, sigma0=30 for image representation
@@ -113,6 +115,9 @@ if __name__ == '__main__':
     
     # Create a noisy image
     im_noisy = utils.measure(im, noise_snr, tau)
+    # saveimg = Image.fromarray(((im_noisy-im_noisy.min())/(im_noisy.max()-im_noisy.min())*255).astype(np.uint8), 'RGB')
+    # saveimg.save('noisy_'+str(tau)+'_'+str(noise_snr)+'_'+str(utils.psnr(im, im_noisy))+'.png')
+
     
     if nonlin == 'relu':
         posencode = True
@@ -127,17 +132,19 @@ if __name__ == '__main__':
         sidelength = H
 
         
-    model = model_dict[args.nonlin].INR(**vars(args))
+    model = model_dict[args.model].INR(**vars(args))
         
     # Send model to CUDA
     model.cuda()
     
-    print('Number of parameters: ', utils.count_parameters(model))
-    print('Input PSNR: %.2f dB'%utils.psnr(im, im_noisy))
     
+    parameters = model.get_optimizer_parameters(weight_decay=0.01)
+    optim = torch.optim.Adam(params = parameters, 
+                             lr=learning_rate * min(1, maxpoints / (H*W)))  # This will apply weight decay only to the last two layers
+   
     # Create an optimizer
-    optim = torch.optim.Adam(lr=learning_rate*min(1, maxpoints/(H*W)),
-                             params=model.parameters())
+    # optim = torch.optim.Adam(lr=learning_rate*min(1, maxpoints/(H*W)),
+    #                          params=model.parameters())
     
     # Schedule to reduce lr to 0.1 times the initial rate in final epoch
     scheduler = LambdaLR(optim, lambda x: 0.1**min(x/niters, 1))
@@ -153,7 +160,10 @@ if __name__ == '__main__':
     mean_lat_weight = torch.cos(lat).mean().cuda()
     weight = torch.cos(lat).cuda()
     weight = weight / mean_lat_weight
-        
+       
+    print('Number of parameters: ', utils.count_parameters(model))
+    print('Input PSNR: %.2f dB'%utils.psnr(im, im_noisy, weight.reshape(H,W).unsqueeze(-1).detach().cpu().numpy())) 
+    
     gt = torch.tensor(im).cuda().reshape(H*W, 3)[None, ...]
     gt_noisy = torch.tensor(im_noisy).cuda().reshape(H*W, 3)[None, ...]
     
@@ -192,8 +202,8 @@ if __name__ == '__main__':
             batch_psnr_array.append(float(batch_psnr.detach().cpu().numpy()))
             batch_mse_array.append(float(loss.detach().cpu().numpy()))
             
-            wandb.log({'noisy_batch_w_mse':loss})
-            wandb.log({'noisy_batch_w_psnr':batch_psnr})
+            wandb.log({'noisy_batch_mse':loss})
+            wandb.log({'noisy_batch_psnr':batch_psnr})
             
             optim.zero_grad()
             loss.backward()
@@ -208,21 +218,23 @@ if __name__ == '__main__':
             mse_loss_array[epoch] = noisy_mse
             mse_array[epoch] =gt_mse
             
-            wandb.log({'noisy_w_mse':noisy_mse})
-            wandb.log({'gt_w_mse':gt_mse})
+            wandb.log({'noisy_all_mse':noisy_mse})
+            wandb.log({'gt_all_mse':gt_mse})
             
             im_gt = gt.reshape(H, W, 3).permute(2, 0, 1)[None, ...]
             im_rec = rec.reshape(H, W, 3).permute(2, 0, 1)[None, ...]
         
             psnrval = -10*torch.log10(mse_array[epoch])
-            wandb.log({'w_psnrval':psnrval})
+            noisy_psnrval = -10*torch.log10(mse_loss_array[epoch])
+            wandb.log({'noisy_all_psnr':noisy_psnrval})
+            wandb.log({'gt_all_psnr':psnrval})
             tbar.set_description('%.1f'%psnrval)
             tbar.refresh()
             
         avg_batch_psnr = np.mean(batch_psnr_array)
         avg_batch_mse = np.mean(batch_mse_array)
-        wandb.log({'avg_batch_psnr':avg_batch_psnr})
-        wandb.log({'avg_batch_mse':avg_batch_mse})
+        wandb.log({'avg_noisy_batch_psnr':avg_batch_psnr})
+        wandb.log({'avg_noisy_batch_mse':avg_batch_mse})
         
         scheduler.step()
         
@@ -232,11 +244,17 @@ if __name__ == '__main__':
         if (mse_array[epoch] < best_mse) or (epoch == 0):
             best_mse = mse_array[epoch]
             best_img = imrec
+            # saveimg = Image.fromarray(((best_img-best_img.min())/(best_img.max()-best_img.min())*255).astype(np.uint8), 'RGB')
+            # saveimg.save('./best_images/best_img'+str(epoch)+'.png')
+
             os.makedirs('./checkpoints/',exist_ok=True)
             save_checkpoint(model, optim, epoch, best_mse, filename=f"./checkpoints/checkpoint_{nonlin}_{wandb.run.id}.pth")
     
+    best_psnr = utils.psnr(im, best_img, weight.reshape(H,W).unsqueeze(-1).detach().cpu().numpy())
+    print('Best PSNR: %.2f dB'%best_psnr)
     if posencode:
         nonlin = 'posenc'
+    best_img = Image.fromarray(((best_img-best_img.min())/(best_img.max()-best_img.min())*255).astype(np.uint8), 'RGB')
     wandb.log({"Prediction" :wandb.Image(best_img, caption=f"prediction")})
     wandb.log({"Ground Truth" :wandb.Image(im, caption=f"ground truth")})
     wandb.log({"Noisy Truth" :wandb.Image(im_noisy, caption=f"noisy truth")})
@@ -251,6 +269,3 @@ if __name__ == '__main__':
     
     os.makedirs('results/denoising', exist_ok=True)
     # io.savemat('results/denoising/%s.mat'%nonlin, mdict)
-
-    best_psnr = utils.psnr(im, best_img)
-    print('Best PSNR: %.2f dB'%best_psnr)

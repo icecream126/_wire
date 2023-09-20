@@ -8,14 +8,14 @@
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
-            "program": "/home/khm/wire/wire_image_denoise.py",
+            "program": "/home/guest_sky/_wire/wire_image_denoise.py",
             "console": "integratedTerminal",
             "justMyCode": true,
             "env": {"CUDA_VISIBLE_DEVICES":"5"},
             "args": [
                 "--niters",
-                "2",
-                "--nonlin",
+                "20",
+                "--model",
                 "siren",
                 "--skip"
             ]

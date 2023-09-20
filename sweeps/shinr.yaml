@@ -1,0 +1,18 @@
+program: wire_image_denoise.py
+name: shinr
+entity: postech_sinr
+method: grid
+parameters:
+  levels:
+    values: [1,2,3,4,5]
+  lr:
+    values: [0.0003]
+  hidden_features:
+    values: [512]
+command:
+  - python
+  - ${program}
+  - ${args}
+  - --dataset_dir=dataset/sun360
+  - --model=shinr
+  - --panorama_idx=2
