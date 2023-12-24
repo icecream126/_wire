@@ -8,7 +8,7 @@ from . import siren
 from . import wire
 from . import wire2d
 from . import shinr
-from . import swinr
+from . import swinr_learn_all
 
 model_dict = {'gauss': gauss,
               'mfn': mfn,
@@ -16,7 +16,7 @@ model_dict = {'gauss': gauss,
               'siren': siren,
               'wire': wire,
               'wire2d': wire2d,
-              'swinr':swinr,
+              'swinr':swinr_learn_all,
               'shinr':shinr}
 
 def get_INR(nonlin, **kwargs):

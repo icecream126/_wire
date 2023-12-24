@@ -11,4 +11,4 @@
 ## CUDA_VISIBLE_DEVICES=7 wandb agent postech_sinr/new_denoising/4xhf9qz4
 
 ## Trial 3
-CUDA_VISIBLE_DEVICES=6 wandb agent postech_sinr/new_denoising/st4622x0
+CUDA_VISIBLE_DEVICES=3 wandb agent postech_sinr/new_denoising/st4622x0

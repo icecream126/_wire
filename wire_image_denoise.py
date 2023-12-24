@@ -18,22 +18,29 @@ from torch.optim.lr_scheduler import LambdaLR
 # from pytorch_msssim import ssim
 from PIL import Image
 
-from modules import models
+import cv2
+from modules import gauss_act, models
 from modules import utils
 from modules.utils import to_cartesian
 import os
 import wandb
+import random
 os.system('Xvfb :1 -screen 0 1600x1200x16  &')    # create virtual display with size 1600x1200 and 16 bit color. Color can be changed to 24 or 8
 os.environ['DISPLAY']=':1.0'    # tell X clients to use our virtual DISPLAY :1.0
 
-from modules import gauss, mfn, relu, siren, wire, wire2d, swinr, shinr
+seed=0
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+from modules import mfn, relu, siren, wire, wire2d, swinr_learn_all, shinr, gauss
 model_dict = {'gauss': gauss,
               'mfn': mfn,
               'relu': relu,
               'siren': siren,
               'wire': wire,
               'wire2d': wire2d,
-              'swinr':swinr,
+              'swinr':swinr_learn_all,
               'shinr':shinr}
 
 def save_checkpoint(model, optimizer, epoch, best_mse, filename="checkpoint.pth"):
@@ -58,24 +65,28 @@ if __name__ == '__main__':
     # Dataset argument
     parser.add_argument("--panorama_idx", type=int, default=1)
     parser.add_argument("--normalize", default=False, action="store_true")
-    parser.add_argument("--tau", type=float, default=70)
-    parser.add_argument("--snr", type=float, default=1)
+    parser.add_argument("--tau", type=float, default=200) #  increase to reduce noise
+    parser.add_argument("--snr", type=float, default=0.01) #  decrease to reduce noise
 
     # Model argument
     parser.add_argument("--hidden_features", type=int, default=256)
     parser.add_argument("--hidden_layers", type=int, default=5)
     parser.add_argument("--skip", default=False, action="store_true")
-    parser.add_argument("--omega", type=float, default=4.0)
-    parser.add_argument("--sigma", type=float, default=4.0)
+    parser.add_argument("--omega_0", type=float, default=10.0)
+    parser.add_argument("--sigma_0", type=float, default=10.0)
     parser.add_argument("--levels", type=int, default=4)
     parser.add_argument("--posenc_freq", type=int, default=10)
-
+    parser.add_argument("--gauss_scale", type=float, default=10.0)
+    parser.add_argument("--wavelet_dim", default=1024, type=int)
+    parser.add_argument("--freq_enc_type", default='cos', type=str)
+    
+    
     # Learning argument
     parser.add_argument("--batch_size", type=int, default=256*256)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--lr_patience", type=int, default=1000)
-    parser.add_argument("--niters",type=int, default=3000)
+    parser.add_argument("--niters",type=int, default=1)
     parser.add_argument("--patience",type=int, default=50)
 
     parser.add_argument("--project_name", type=str, default="fair_denoising")
@@ -84,7 +95,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.in_features = 3
     args.out_features = 3
-    wandb.init(project='final_denoising', config=args, name=str(args.model))
+    wandb.init(project='final_denoising', config=args, name=str(args.model))# , mode='disabled')
     
     
     nonlin = args.model            # type of nonlinearity, 'wire', 'siren', 'mfn', 'relu', 'posenc', 'gauss'
@@ -99,8 +110,8 @@ if __name__ == '__main__':
     
     # Gabor filter constants.
     # We suggest omega0 = 4 and sigma0 = 4 for denoising, and omega0=20, sigma0=30 for image representation
-    omega0 = args.omega           # Frequency of sinusoid
-    sigma0 = args.sigma           # Sigma of Gaussian
+    omega_0 = args.omega_0           # Frequency of sinusoid
+    sigma_0 = args.sigma_0           # Sigma of Gaussian
     
     # Network parameters
     hidden_layers = args.hidden_layers       # Number of hidden layers in the MLP
@@ -183,6 +194,8 @@ if __name__ == '__main__':
         
         batch_psnr_array = []
         batch_mse_array = []
+        gt_batch_psnr_array = []
+        gt_batch_mse_array = []
         
         for b_idx in range(0, H*W, maxpoints):
             b_indices = indices[b_idx:min(H*W, b_idx+maxpoints)] # [65536]
@@ -198,11 +211,18 @@ if __name__ == '__main__':
                 rec[:, b_indices, :] = pixelvalues
     
             loss = ((pixelvalues - gt_noisy[:, b_indices, :])**2 * b_weight.unsqueeze(-1)).mean() 
-            gt_loss = ((pixelvalues - gt[:, b_indices, :])**2 * b_weight.unsqueeze(-1)).mean() 
-            batch_psnr =  -10*torch.log10(loss)
-            gt_batch_psnr =  -10*torch.log10(gt_loss)
-            batch_psnr_array.append(float(batch_psnr.detach().cpu().numpy()))
+            # batch_psnr =  -10*torch.log10(loss)
+
+            batch_psnr = utils.psnr(pixelvalues.detach().cpu().numpy(), gt_noisy[:, b_indices, :].detach().cpu().numpy(),b_weight.unsqueeze(-1).detach().cpu().numpy())
+            batch_psnr_array.append(float(batch_psnr))
             batch_mse_array.append(float(loss.detach().cpu().numpy()))
+            
+            
+            gt_loss = ((pixelvalues - gt[:, b_indices, :])**2 * b_weight.unsqueeze(-1)).mean() 
+            # gt_batch_psnr =  -10*torch.log10(gt_loss)
+            gt_batch_psnr = utils.psnr(pixelvalues.detach().cpu().numpy(), gt[:, b_indices, :].detach().cpu().numpy(),b_weight.unsqueeze(-1).detach().cpu().numpy())
+            gt_batch_psnr_array.append(float(gt_batch_psnr))
+            gt_batch_mse_array.append(float(gt_loss.detach().cpu().numpy()))
             
             wandb.log({'noisy_batch_mse':loss})
             wandb.log({'noisy_batch_psnr':batch_psnr})
@@ -228,8 +248,12 @@ if __name__ == '__main__':
             im_gt = gt.reshape(H, W, 3).permute(2, 0, 1)[None, ...]
             im_rec = rec.reshape(H, W, 3).permute(2, 0, 1)[None, ...]
         
-            psnrval = -10*torch.log10(mse_array[epoch])
-            noisy_psnrval = -10*torch.log10(mse_loss_array[epoch])
+            # psnrval = -10*torch.log10(mse_array[epoch])
+            # noisy_psnrval = -10*torch.log10(mse_loss_array[epoch])
+            
+            noisy_psnrval = utils.psnr(gt_noisy.detach().cpu().numpy(), rec.detach().cpu().numpy(),weight.unsqueeze(-1).detach().cpu().numpy())
+            psnrval = utils.psnr(gt.detach().cpu().numpy(), rec.detach().cpu().numpy(),weight.unsqueeze(-1).detach().cpu().numpy())
+            
             wandb.log({'noisy_all_psnr':noisy_psnrval})
             wandb.log({'gt_all_psnr':psnrval})
             tbar.set_description('%.1f'%psnrval)
@@ -239,6 +263,12 @@ if __name__ == '__main__':
         avg_batch_mse = np.mean(batch_mse_array)
         wandb.log({'avg_noisy_batch_psnr':avg_batch_psnr})
         wandb.log({'avg_noisy_batch_mse':avg_batch_mse})
+        
+        
+        avg_gt_batch_psnr = np.mean(gt_batch_psnr_array)
+        avg_gt_batch_mse = np.mean(gt_batch_mse_array)
+        wandb.log({'avg_noisy_batch_psnr':avg_gt_batch_psnr})
+        wandb.log({'avg_noisy_batch_mse':avg_gt_batch_mse})
         
         scheduler.step()
         

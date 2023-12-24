@@ -13,5 +13,5 @@
 
 ## Trial 3
 ## panorama index 0
-CUDA_VISIBLE_DEVICES=3 wandb agent postech_sinr/new_denoising/u546pzuv
+CUDA_VISIBLE_DEVICES=0 wandb agent postech_sinr/new_denoising/u546pzuv
 

@@ -1,74 +1,85 @@
-#!/usr/bin/env python
-
-import pdb
-import math
-
-import numpy as np
-
 import torch
 from torch import nn
+from math import ceil
+
+from .utils import GaussEncoding
+
 
 class GaussLayer(nn.Module):
-    '''
-        Drop in replacement for SineLayer but with Gaussian non linearity
-    '''
-    def __init__(self, in_features, out_features, bias=True,
-                 is_first=False, omega_0=30, scale=10.0):
-        '''
-            is_first, and omega_0 are not used.
-        '''
+    def __init__(
+        self,
+        in_features,
+        out_features,
+        **kwargs,
+    ):
         super().__init__()
+
         self.in_features = in_features
-        self.omega_0 = omega_0
-        self.scale = scale
-        self.is_first = is_first
-        self.linear = nn.Linear(in_features, out_features, bias=bias)
-        
+        self.linear = nn.Linear(in_features, out_features)
+
     def forward(self, input):
-        return torch.exp(-(self.scale*self.linear(input))**2)
-    
+        return nn.functional.relu(self.linear(input))
+
 
 class INR(nn.Module):
-    def __init__(self, in_features,
-                 hidden_features, hidden_layers, 
-                 out_features,outermost_linear=True,
-                 first_omega_0=30, hidden_omega_0=30., scale=10.0,
-                 pos_encode=False, sidelength=512, fn_samples=None,
-                 use_nyquist=True):
+    def __init__(
+        self,
+        in_features,
+        out_features,
+        hidden_features,
+        hidden_layers,
+        skip,
+        gauss_scale,
+        mapping_size=256,
+        **kwargs,
+    ):
         super().__init__()
-        self.pos_encode = pos_encode
-        
-        self.complex = False
+
+        self.skip = skip
+        self.hidden_layers = hidden_layers
+        self.posenc = GaussEncoding(in_features=in_features, mapping_size = mapping_size, scale=gauss_scale)
+        # import pdb
+        # pdb.set_trace()
+        self.posenc_dim = 2 * mapping_size
+
         self.nonlin = GaussLayer
-            
-        self.net = []
-        self.net.append(self.nonlin(in_features, hidden_features, 
-                                  is_first=True, omega_0=first_omega_0,
-                                  scale=scale))
+
+        self.net = nn.ModuleList()
+        self.net.append(self.nonlin(self.posenc_dim, hidden_features))
 
         for i in range(hidden_layers):
-            self.net.append(self.nonlin(hidden_features, hidden_features, 
-                                      is_first=False, omega_0=hidden_omega_0,
-                                      scale=scale))
-
-        if outermost_linear:
-            if self.complex:
-                dtype = torch.cfloat
+            if skip and i == ceil(hidden_layers / 2):
+                self.net.append(self.nonlin(hidden_features + self.posenc_dim, hidden_features))
             else:
-                dtype = torch.float
-            final_linear = nn.Linear(hidden_features,
-                                     out_features,
-                                     dtype=dtype)
-                        
-            self.net.append(final_linear)
-        else:
-            self.net.append(self.nonlin(hidden_features, out_features, 
-                                      is_first=False, omega_0=hidden_omega_0,
-                                      scale=scale))
-        
-        self.net = nn.Sequential(*self.net)
+                self.net.append(self.nonlin(hidden_features, hidden_features))
+
+        final_linear = nn.Linear(hidden_features, out_features)
+
+        self.net.append(final_linear)
+
+    def forward(self, x):
+        # import pdb
+        # pdb.set_trace()
+        x = self.posenc(x)
+        x_in = x
+        for i, layer in enumerate(self.net):
+            if self.skip and i == ceil(self.hidden_layers / 2) + 1:
+                x = torch.cat([x, x_in], dim=-1)
+            x = layer(x)
+        return x
     
-    def forward(self, coords):
-        output = self.net(coords)
-                    
-        return output
+    def get_optimizer_parameters(self, weight_decay):
+        # Parameters of the last two layers
+        decay_parameters = list(self.net[-1].parameters()) + list(self.net[-2].parameters())
+
+        # Parameters of the remaining layers
+        no_decay_parameters = [
+            p for n, p in self.named_parameters() if not any(
+                nd in n for nd in ["net." + str(len(self.net) - 1), "net." + str(len(self.net) - 2)]
+            )
+        ]
+
+        return [
+            {'params': no_decay_parameters, 'weight_decay': 0.0},
+            {'params': decay_parameters, 'weight_decay': weight_decay}
+        ]

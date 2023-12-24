@@ -26,9 +26,9 @@ class SineLayer(nn.Module):
     '''
     
     def __init__(self, in_features, out_features, bias=True,
-                 is_first=False, omega=30, scale=10.0, init_weights=True):
+                 is_first=False, omega_0=30, scale=10.0, init_weights=True):
         super().__init__()
-        self.omega = omega
+        self.omega_0 = omega_0
         self.is_first = is_first
         
         self.in_features = in_features
@@ -39,16 +39,16 @@ class SineLayer(nn.Module):
                 self.linear.weight.uniform_(-1 / self.in_features, 
                                              1 / self.in_features)      
             else:
-                self.linear.weight.uniform_(-np.sqrt(6 / self.in_features) / self.omega, 
-                                             np.sqrt(6 / self.in_features) / self.omega)
+                self.linear.weight.uniform_(-np.sqrt(6 / self.in_features) / self.omega_0, 
+                                             np.sqrt(6 / self.in_features) / self.omega_0)
         
     def forward(self, input):
-        return torch.sin(self.omega * self.linear(input))
+        return torch.sin(self.omega_0 * self.linear(input))
     
 class INR(nn.Module):
     def __init__(self, in_features, hidden_features, 
                  hidden_layers, 
-                 out_features,skip,omega,  **kwargs):
+                 out_features,skip,omega_0,  **kwargs):
         super().__init__()
         self.nonlin = SineLayer
         self.skip =skip
@@ -56,15 +56,15 @@ class INR(nn.Module):
             
         self.net = nn.ModuleList()
         self.net.append(self.nonlin(in_features, hidden_features, 
-                                  is_first=True, omega=omega))       
+                                  is_first=True, omega_0=omega_0))       
 
         for i in range(hidden_layers):
             if self.skip and i == ceil(hidden_layers / 2):
                 self.net.append(self.nonlin(hidden_features+in_features, hidden_features, 
-                                        is_first=False, omega=omega))
+                                        is_first=False, omega_0=omega_0))
             else:
                 self.net.append(
-                    self.nonlin(hidden_features, hidden_features, is_first=False, omega=omega)
+                    self.nonlin(hidden_features, hidden_features, is_first=False, omega_0=omega_0)
                 )
         dtype = torch.float
         final_linear = nn.Linear(hidden_features,
@@ -72,7 +72,7 @@ class INR(nn.Module):
                                      dtype=dtype)
         
         with torch.no_grad():
-            const = np.sqrt(6/hidden_features)/max(omega, 1e-12)
+            const = np.sqrt(6/hidden_features)/max(omega_0, 1e-12)
             final_linear.weight.uniform_(-const, const)
                     
         self.net.append(final_linear)
